@@ -36,6 +36,25 @@ constexpr arith_test_case arith_test_cases[] = {
     {{0, 1}, {0, 1}, 0x20000000000000000_u128, 0, 0},
 };
 
+struct ArithTestCaseSigned
+{
+    int128 x;
+    int128 y;
+    int128 sum;
+    int128 difference;
+    int128 product;
+};
+
+const std::vector<ArithTestCaseSigned> arith_test_cases_signed = {
+    {1, 2, 3, -1, 2},
+    {-3, 7, 4, -10, -21},
+    {-5, -6, -11, 1, 30},
+    {0, 0, 0, 0, 0},
+    {int64_t{1} << 62, (int64_t{1} << 62) - 1, (uint64_t{1} << 63) - 1, 1,
+        int128{uint128{0xC000000000000000, 0x0FFFFFFFFFFFFFFF}}},
+    {-1, 1, 0, -2, -1},
+};
+
 
 struct div_test_case
 {
@@ -189,7 +208,7 @@ static_assert(-a == (~a + 1));
 static_assert(+a == a);
 }  // namespace static_test_arith
 
-TEST(int128, numeric_limits)
+TEST(uint128, numeric_limits)
 {
     static_assert(!std::numeric_limits<uint128>::is_signed);
     static_assert(std::numeric_limits<uint128>::is_integer);
@@ -204,7 +223,7 @@ TEST(int128, numeric_limits)
     EXPECT_EQ(std::numeric_limits<uint128>::max(), uint128{0} - 1);
 }
 
-TEST(int128, add)
+TEST(uint128, add)
 {
     for (const auto& t : arith_test_cases)
     {
@@ -213,7 +232,16 @@ TEST(int128, add)
     }
 }
 
-TEST(int128, sub)
+TEST(int128, add)
+{
+    for (const auto& t : arith_test_cases_signed)
+    {
+        EXPECT_EQ(t.x + t.y, t.sum);
+        EXPECT_EQ(t.y + t.x, t.sum);
+    }
+}
+
+TEST(uint128, sub)
 {
     for (const auto& t : arith_test_cases)
     {
@@ -221,7 +249,16 @@ TEST(int128, sub)
     }
 }
 
-TEST(int128, mul)
+TEST(int128, sub)
+{
+    for (const auto& t : arith_test_cases_signed)
+    {
+        EXPECT_EQ(t.x - t.y, t.difference);
+    }
+}
+
+
+TEST(uint128, mul)
 {
     for (const auto& t : arith_test_cases)
     {
@@ -233,7 +270,19 @@ TEST(int128, mul)
     }
 }
 
-TEST(int128, increment)
+TEST(int128, mul)
+{
+    for (const auto& t : arith_test_cases_signed)
+    {
+        EXPECT_EQ(t.x * t.y, t.product);
+        EXPECT_EQ(t.y * t.x, t.product);
+        auto z = t.x;
+        EXPECT_EQ(z *= t.y, t.product);
+        EXPECT_EQ(z, t.product);
+    }
+}
+
+TEST(uint128, increment)
 {
     static_assert([] {
         uint128 x;
@@ -275,7 +324,7 @@ TEST(int128, increment)
     EXPECT_EQ(d, Of);
 }
 
-TEST(int128, shl)
+TEST(uint128, shl)
 {
     constexpr uint128 x = 1;
     for (unsigned s = 0; s < 127; ++s)
@@ -296,7 +345,7 @@ TEST(int128, shl)
     EXPECT_EQ(z, uint128({0, 1}));
 }
 
-TEST(int128, shr)
+TEST(uint128, shr)
 {
     constexpr uint128 x = uint128(1) << 127;
     for (unsigned s = 0; s < 127; ++s)
@@ -325,7 +374,7 @@ TEST(int128, shr)
     EXPECT_EQ(z, 2);
 }
 
-TEST(int128, div)
+TEST(uint128, div)
 {
     static_assert(7_u128 / 3_u128 == 2_u128);
     static_assert(7_u128 % 3_u128 == 1_u128);
@@ -354,7 +403,7 @@ TEST(int128, div)
     }
 }
 
-TEST(int128, sdivrem)
+TEST(uint128, sdivrem)
 {
     static_assert(
         sdivrem(0x33c7c3442a47d644b0d0b4ca50f8bbe1_u128, 0x5d99de82798cc77d06c05e7aa7c1f54_u128) ==
@@ -379,7 +428,7 @@ TEST(int128, sdivrem)
     EXPECT_EQ(sdivrem(x, -y).rem, 0x13e5e3b3e827e);
 }
 
-TEST(int128, literals)
+TEST(uint128, literals)
 {
     auto a = 340282366920938463463374607431768211455_u128;
     EXPECT_EQ(a, (uint128{0xffffffffffffffff, 0xffffffffffffffff}));
@@ -390,7 +439,7 @@ TEST(int128, literals)
     EXPECT_EQ(0xaBc123eFd_u128, 0xAbC123EfD_u128);
 }
 
-TEST(int128, from_string)
+TEST(uint128, from_string)
 {
     constexpr auto ka = from_string<uint128>("18446744073709551617");
     static_assert(ka == uint128{1, 1});
@@ -404,7 +453,7 @@ TEST(int128, from_string)
     EXPECT_EQ(from_string<uint128>(sb), uint128(0xaabbccddeeff99, 3));
 }
 
-TEST(int128, from_string_exceptions)
+TEST(uint128, from_string_exceptions)
 {
     EXPECT_THROW_MESSAGE(from_string<uint128>("340282366920938463463374607431768211456"),
         std::out_of_range, "340282366920938463463374607431768211456");
@@ -424,13 +473,13 @@ TEST(int128, from_string_exceptions)
     EXPECT_THROW_MESSAGE(from_string<uint128>("100'000"), std::invalid_argument, "invalid digit");
 }
 
-TEST(int128, to_string)
+TEST(uint128, to_string)
 {
     EXPECT_EQ(to_string(uint128{33}, 33), "10");
     EXPECT_EQ(hex(uint128{7 * 16 + 1}), "71");
 }
 
-TEST(int128, umul)
+TEST(uint128, umul)
 {
     constexpr uint64_t inputs[] = {12243, 12503, 53501, 62950, 682017770, 1164206252, 1693374163,
         2079516117, 7043980147839196358, 12005172997151200154u, 15099684930315651455u,
@@ -462,7 +511,7 @@ TEST(int128, umul)
     }
 }
 
-TEST(int128, clz)
+TEST(uint128, clz)
 {
     EXPECT_EQ(clz(intx::uint128{0}), 128u);
     for (unsigned i = 0; i < intx::uint128::num_bits; ++i)
@@ -472,7 +521,7 @@ TEST(int128, clz)
     }
 }
 
-TEST(int128, unary_plus)
+TEST(uint128, unary_plus)
 {
     const auto x = uint128{1};
     const auto& y = +x;

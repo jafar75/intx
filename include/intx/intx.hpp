@@ -83,6 +83,7 @@ namespace intx
 
 /// Alias for the compiler supported unsigned __int128 type.
 using builtin_uint128 = unsigned __int128;
+using builtin_int128 = __int128;
 
     #pragma GCC diagnostic pop
 #endif
@@ -714,6 +715,227 @@ constexpr div_result<uint128> sdivrem(uint128 x, uint128 y) noexcept
 
     return {q_is_neg ? -res.quot : res.quot, x_is_neg ? -res.rem : res.rem};
 }
+
+
+struct int128 : private uint128
+{
+    int128(int64_t value) : uint128(static_cast<uint64_t>(value), (value < 0) ? UINT64_MAX : 0) {}
+
+    // Construct from raw uint128
+    explicit constexpr int128(const uint128& raw) : uint128(raw[0], raw[1]) {}
+
+    template <typename T>
+    constexpr explicit(false) int128(T x) noexcept
+        requires std::is_convertible_v<T, int64_t>
+      : int128(static_cast<int64_t>(x))
+    {}
+
+#if INTX_HAS_BUILTIN_INT128
+    constexpr explicit(false) int128(builtin_int128 x) noexcept
+    {
+        *this = int128(uint128(static_cast<uint64_t>(x),
+            static_cast<uint64_t>(static_cast<builtin_uint128>(x) >> 64)));
+    }
+#endif
+
+    /// Explicit converting operator for all builtin integral types.
+    template <typename Int>
+    constexpr explicit operator Int() const noexcept
+        requires std::is_integral_v<Int>
+    {
+        if constexpr (std::is_signed_v<Int>)
+        {
+            // Signed cast: reinterpret low word as int64_t first
+            return static_cast<Int>(static_cast<int64_t>((*this)[0]));
+        }
+        else
+        {
+            // Unsigned cast: safe truncation
+            return static_cast<Int>((*this)[0]);
+        }
+    }
+
+    constexpr bool is_negative() const noexcept { return (*this)[1] >> 63; }
+
+    friend constexpr int128 operator+(int128 a, int128 b) noexcept
+    {
+        return int128(static_cast<uint128>(a) + static_cast<uint128>(b));
+    }
+
+    constexpr int128 operator+() const noexcept { return *this; }
+
+    friend constexpr int128 operator-(int128 a, int128 b) noexcept
+    {
+        return int128(static_cast<uint128>(a) - static_cast<uint128>(b));
+    }
+
+    constexpr int128 operator-() const noexcept { return int128(uint128{0}) - *this; }
+
+    // friend constexpr int128 operator-(const int128& x) noexcept { return int128(0) - x; }
+
+    int128& operator+=(int128 rhs) noexcept
+    {
+        *this = *this + rhs;
+        return *this;
+    }
+
+    int128& operator-=(int128 rhs) noexcept
+    {
+        *this = *this - rhs;
+        return *this;
+    }
+
+    int128& operator++() noexcept
+    {
+        *this += int128(1);
+        return *this;
+    }
+
+    int128& operator--() noexcept
+    {
+        *this -= int128(1);
+        return *this;
+    }
+
+    int128 operator++(int) noexcept
+    {
+        int128 temp = *this;
+        ++(*this);
+        return temp;
+    }
+
+    int128 operator--(int) noexcept
+    {
+        int128 temp = *this;
+        --(*this);
+        return temp;
+    }
+    friend constexpr bool operator==(int128 a, int128 b) noexcept
+    {
+        return static_cast<uint128>(a) == static_cast<uint128>(b);
+    }
+
+    friend constexpr bool operator<(int128 a, int128 b) noexcept
+    {
+        // Extract sign bits
+        const bool a_neg = a[1] >> 63;
+        const bool b_neg = b[1] >> 63;
+
+        if (a_neg != b_neg)
+            return a_neg;
+
+        return static_cast<uint128>(a) < static_cast<uint128>(b);
+    }
+
+    friend constexpr bool operator<=(int128 a, int128 b) noexcept { return !(b < a); }
+
+    friend constexpr bool operator>(int128 a, int128 b) noexcept { return b < a; }
+
+    friend constexpr bool operator>=(int128 a, int128 b) noexcept { return !(a < b); }
+
+    friend constexpr std::strong_ordering operator<=>(int128 a, int128 b) noexcept
+    {
+        if (a == b)
+            return std::strong_ordering::equal;
+        return (a < b) ? std::strong_ordering::less : std::strong_ordering::greater;
+    }
+
+    friend constexpr int128 operator~(int128 x) noexcept
+    {
+        return int128(~static_cast<uint128>(x));
+    }
+
+    friend constexpr int128 operator|(int128 a, int128 b) noexcept
+    {
+        return int128(static_cast<uint128>(a) | static_cast<uint128>(b));
+    }
+
+    friend constexpr int128 operator&(int128 a, int128 b) noexcept
+    {
+        return int128(static_cast<uint128>(a) & static_cast<uint128>(b));
+    }
+
+    friend constexpr int128 operator^(int128 a, int128 b) noexcept
+    {
+        return int128(static_cast<uint128>(a) ^ static_cast<uint128>(b));
+    }
+
+    friend constexpr int128 operator<<(int128 x, uint64_t shift) noexcept
+    {
+        return int128(static_cast<uint128>(x) << shift);
+    }
+
+    friend constexpr int128 operator>>(int128 x, uint64_t shift) noexcept
+    {
+        const bool negative = x[1] >> 63;
+
+        if (shift == 0)
+            return x;
+
+        if (shift >= 128)
+            return negative ? int128(-1) : int128(0);
+
+        uint64_t lo, hi;
+
+        if (shift < 64)
+        {
+            lo = (x[0] >> shift) | (x[1] << (64 - shift));
+            hi = x[1] >> shift;
+        }
+        else
+        {
+            lo = x[1] >> (shift - 64);
+            hi = negative ? UINT64_MAX : 0;
+        }
+
+        // Sign-extend if negative
+        if (negative && shift < 128)
+        {
+            uint64_t fill = UINT64_MAX << (64 - std::min(shift, 64ul));
+            hi |= fill;
+        }
+
+        return int128(uint128{hi, lo});
+    }
+
+
+    // Signed multiplication
+    friend constexpr int128 operator*(const int128& a, const int128& b) noexcept
+    {
+        const bool sign_a = a.is_negative();
+        const bool sign_b = b.is_negative();
+
+        uint128 ua = sign_a ? (~static_cast<uint128>(a) + 1) : static_cast<uint128>(a);
+        uint128 ub = sign_b ? (~static_cast<uint128>(b) + 1) : static_cast<uint128>(b);
+
+        // Core multiplication as in uint operator*
+        uint128 p = umul(ua[0], ub[0]);
+        p[1] += (ua[0] * ub[1]) + (ua[1] * ub[0]);
+
+        return (sign_a ^ sign_b) ? int128(~p + 1) : int128(p);
+    }
+
+    friend constexpr int128 operator/(int128 a, int128 b) noexcept
+    {
+        const auto res = sdivrem(static_cast<uint128>(a), static_cast<uint128>(b));
+        return int128(res.quot);
+    }
+
+    friend constexpr int128 operator%(int128 a, int128 b) noexcept
+    {
+        const auto res = sdivrem(static_cast<uint128>(a), static_cast<uint128>(b));
+        return int128(res.rem);
+    }
+
+    constexpr int128& operator*=(int128 rhs) noexcept { return *this = *this * rhs; }
+    constexpr int128& operator|=(int128 rhs) noexcept { return *this = *this | rhs; }
+    constexpr int128& operator&=(int128 rhs) noexcept { return *this = *this & rhs; }
+    constexpr int128& operator^=(int128 rhs) noexcept { return *this = *this ^ rhs; }
+    constexpr int128& operator<<=(uint64_t shift) noexcept { return *this = *this << shift; }
+    constexpr int128& operator>>=(uint64_t shift) noexcept { return *this = *this >> shift; }
+    constexpr int128& operator/=(int128 rhs) noexcept { return *this = *this / rhs; }
+    constexpr int128& operator%=(int128 rhs) noexcept { return *this = *this % rhs; }
+};
 
 /// @}
 
